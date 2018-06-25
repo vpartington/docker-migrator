@@ -319,6 +319,7 @@ catch_retag_error() {
 docker_login() {
   # leave REGISTRY empty if v1 is docker hub (docker.io); else set REGISTRY to v1
   [ "${1}" == "docker.io" ] && REGISTRY="" || REGISTRY="${1}"
+  [ "${1}" == "docker.io/xebialabsunsupported" ] && REGISTRY="" || REGISTRY="${1}"
   USERNAME="${2}"
   PASSWORD="${3}"
   EMAIL="${4}"
@@ -663,11 +664,11 @@ query_source_images() {
       echo -e "${INFO} Grabbing tags for ${V1_REGISTRY}/${NAMESPACE}/${i}"
       #echo -e "curl -v ${V1_OPTIONS} -sf ${V1_PROTO}://${AUTH_CREDS}@${V1_REGISTRY}/v1/repositories/${i}/tags"
       IMAGE_TAGS=$(curl ${V1_OPTIONS} -sf ${V1_PROTO}://${AUTH_CREDS}@${V1_REGISTRY}/v1/repositories/${i}/tags | jq -r 'keys | .[]') || catch_error "curl => API failure reading tags"
-  
+
       # retrieve a list of tags at the target repository
       TAGS_AT_TARGET=$(query_tags_to_skip ${i})
       echo -e "${INFO} Found the following existing tags at ${V2_REGISTRY}/${NAMESPACE}/${i}: ${TAGS_AT_TARGET}"
-  
+
       # loop through tags to create list of full image names w/tags
       for j in ${IMAGE_TAGS}
       do
@@ -748,8 +749,8 @@ retag_image() {
   fi
 
   # retag image
-  echo -e "${INFO} Retagging ${V1_REGISTRY}/${i} to ${V2_REGISTRY}/${i} ${MIG_STATUS}"
-  (docker tag -f ${SOURCE_IMAGE} ${DESTINATION_IMAGE} && echo -e "${OK} Successfully retagged ${V1_REGISTRY}/${i} to ${V2_REGISTRY}/${i}\n") || catch_retag_error "${SOURCE_IMAGE}" "${DESTINATION_IMAGE}" "${3}" "${4}"
+  echo -e "${INFO} Retagging ${SOURCE_IMAGE} to ${DESTINATION_IMAGE} ${MIG_STATUS}"
+  (docker tag -f ${SOURCE_IMAGE} ${DESTINATION_IMAGE} && echo -e "${OK} Successfully retagged ${SOURCE_IMAGE} to ${DESTINATION_IMAGE}\n") || catch_retag_error "${SOURCE_IMAGE}" "${DESTINATION_IMAGE}" "${3}" "${4}"
 }
 
 # remove image
@@ -795,7 +796,8 @@ check_registry_swap_or_retag() {
     echo -e "\n${INFO} Retagging all images from '${V1_REGISTRY}' to '${V2_REGISTRY}'"
     for i in ${FULL_IMAGE_LIST}
     do
-      retag_image "${V1_REGISTRY}/${i}" "${V2_REGISTRY}/${i}" ${COUNT_RETAG} ${LEN_FULL_IMAGE_LIST}
+      reponame=`echo $i | sed "s/^${DOCKER_HUB_ORG}\///"`
+      retag_image "${V1_REGISTRY}/${i}" "${V2_REGISTRY}/${reponame}" ${COUNT_RETAG} ${LEN_FULL_IMAGE_LIST}
       COUNT_RETAG=$[$COUNT_RETAG+1]
     done
     echo -e "${OK} Successfully retagged all images"
@@ -848,7 +850,8 @@ push_images_to_v2() {
   echo -e "\n${INFO} Pushing all images to ${V2_REGISTRY}"
   for i in ${FULL_IMAGE_LIST}
   do
-    push_pull_image "push" "${V2_REGISTRY}/${i}" ${COUNT_PUSH} ${LEN_FULL_IMAGE_LIST}
+    reponame=`echo $i | sed "s/^${DOCKER_HUB_ORG}\///"`
+    push_pull_image "push" "${V2_REGISTRY}/${reponame}" ${COUNT_PUSH} ${LEN_FULL_IMAGE_LIST}
     COUNT_PUSH=$[$COUNT_PUSH+1]
   done
   echo -e "${OK} Successfully pushed all images to ${V2_REGISTRY}"
@@ -888,14 +891,16 @@ migrate_in_increments() {
     # retag images from v1 for v2
     for i in ${FULL_IMAGE_ARR[@]:${COUNT_START}:${COUNT_END}}
     do
-      retag_image "${V1_REGISTRY}/${i}" "${V2_REGISTRY}/${i}" ${COUNT_RETAG} ${LEN_FULL_IMAGE_LIST}
+      reponame=`echo $i | sed "s/^${DOCKER_HUB_ORG}\///"`
+      retag_image "${V1_REGISTRY}/${i}" "${V2_REGISTRY}/${reponame}" ${COUNT_RETAG} ${LEN_FULL_IMAGE_LIST}
       COUNT_RETAG=$[$COUNT_RETAG+1]
     done
 
     # push images to v2
     for i in ${FULL_IMAGE_ARR[@]:${COUNT_START}:${COUNT_END}}
     do
-      push_pull_image "push" "${V2_REGISTRY}/${i}" ${COUNT_PUSH} ${LEN_FULL_IMAGE_LIST}
+      reponame=`echo $i | sed "s/^${DOCKER_HUB_ORG}\///"`
+      push_pull_image "push" "${V2_REGISTRY}/${reponame}" ${COUNT_PUSH} ${LEN_FULL_IMAGE_LIST}
       COUNT_PUSH=$[$COUNT_PUSH+1]
     done
 
@@ -903,7 +908,8 @@ migrate_in_increments() {
     for i in ${FULL_IMAGE_ARR[@]:${COUNT_START}:${COUNT_END}}
     do
       remove_image "${V1_REGISTRY}/${i}"
-      remove_image "${V2_REGISTRY}/${i}"
+      reponame=`echo $i | sed "s/^${DOCKER_HUB_ORG}\///"`
+      remove_image "${V2_REGISTRY}/${reponame}"
     done
 
     # increment COUNT_START by migration increment value
@@ -929,7 +935,8 @@ cleanup_local_engine() {
     do
       # remove docker image/tags; allow failures here (in case image is actually in use)
       remove_image "${V1_REGISTRY}/${i}"
-      remove_image "${V2_REGISTRY}/${i}"
+      reponame=`echo $i | sed "s/^${DOCKER_HUB_ORG}\///"`
+      remove_image "${V2_REGISTRY}/${reponame}"
     done
   fi
   echo -e "${OK} Successfully cleaned up images from local Docker engine"
@@ -968,7 +975,7 @@ main() {
     # perform migration pulling image images at once
     pull_images_from_source
     check_registry_swap_or_retag
-    verify_v2_ready
+    # verify_v2_ready
     # check to see if V2_NO_LOGIN is true
     if [ "${V2_NO_LOGIN}" != "true" ]; then
       docker_login ${V2_REGISTRY} ${V2_USERNAME} ${V2_PASSWORD} ${V2_EMAIL}
