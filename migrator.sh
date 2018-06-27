@@ -579,7 +579,7 @@ query_source_images() {
       PAGE_URL="$(echo $PAGE_DATA | jq -r .next)"
 
       # Add repos to the list
-      FULL_REPO_LIST="${FULL_REPO_LIST} $(echo ${PAGE_DATA} | jq -r '.results|.[]|.name')"
+      FULL_REPO_LIST="${FULL_REPO_LIST} $(echo; echo ${PAGE_DATA} | jq -r '.results|.[]|.name')"
     done
 
     # check to see if a filter pattern was provided, create a list of all repositories for the given namespace
